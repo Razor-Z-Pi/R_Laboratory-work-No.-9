@@ -1,0 +1,187 @@
+---
+title: "Лабораторная работа №9 - Работа с датами и временем с помощью lubridate"
+author: "Razor_Z_Pi"
+date: "2024-05-31"
+output: html_document
+---
+
+## Работа с датами и временем с помощью lubridate
+
+## 1. Как в течение года меняется распределение времени полета в течение дня?
+
+Распределение времени полета в течение дня может изменяться в течение года из-за различных факторов, таких как сезонность, погодные условия, количество пассажиров.
+```{r}
+library(lubridate)
+library(tidyverse)
+library(nycflights13)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+options(max.print = 50)
+make_datetime_100 <- function(year, month, day, time) {
+  make_datetime(year, month, day, time %/% 100, time %% 100)
+}
+
+flights <- flights %>% 
+  filter(!is.na(dep_time), !is.na(arr_time)) %>% 
+  mutate(
+    dep_time = make_datetime_100(year, month, day, dep_time),
+    arr_time = make_datetime_100(year, month, day, arr_time),
+    sched_dep_time = make_datetime_100(year, month, day, sched_dep_time),
+    sched_arr_time = make_datetime_100(year, month, day, sched_arr_time)
+  ) %>% select(origin, dest, ends_with("delay"), ends_with("time"))
+
+dep_time_season_data <- flights %>%
+  mutate(hour = hour(dep_time), month = month(dep_time)) %>%
+  group_by(month, hour) %>%
+  summarise(n = n())
+ggplotly(ggplot(dep_time_season_data, aes(hour, n, color = month)) +
+           labs(x = "Время отправления (часы)", 
+                y = "Количество рейсов",
+                title = "Изменение распределения времени полета в течение дня в году")+
+           geom_point(size = 1.5) +
+           scale_color_gradient(low = "blue",high = "red"))
+
+```
+## 2. Сравните dep_time, sched_dep_time и dep_delay. Последовательны ли они? Объясните свои выводы.
+```{r}
+dep_avg_data <- flights %>% 
+  mutate(minute = minute(dep_time)) %>% 
+  group_by(minute) %>% 
+  summarise(
+    avg_delay = mean(arr_delay, na.rm = TRUE),
+    n = n())
+ggplotly(ggplot(dep_avg_data, aes(minute, avg_delay)) +
+           geom_line(color = "red")+
+           geom_point(size = 2, color = "green") +
+           labs(x = "Время(мин)", 
+                y = "Средняя задержка(мин)", 
+                title = "Средняя задержка рейсов в течение часа"))
+
+sched_dep_data <- flights %>% 
+  mutate(minute = minute(sched_dep_time)) %>% 
+  group_by(minute) %>% 
+  summarise(n = n())
+ggplotly(ggplot(sched_dep_data, aes(minute, n)) +
+           geom_col(color = "red")+
+           geom_point( size = 2, color = "green") +
+           labs(x = "Время(мин)", 
+                y = "Количество запланированных вылетов", 
+                title = "Количество запланированных вылетов за час"))
+```
+## Ответ:
+Если сравнить графики видно что задержка вылетов в половине и в конце часа минимальная!
+Скорее всего из-за кратности примерно в 30 минут.
+
+## 3. Сравните air_time с продолжительностью между вылетом и прибытием. Объясните свои выводы. (Подсказка: учитывайте расположение аэропорта.)
+```{r}
+print("Время от вылета до прибытия / время в воздухе:")
+print(paste(flights$arr_time - flights$dep_time, flights$air_time))
+```
+## Ответ:
+Возможно начальное значение в таблице меньше чем время в полете, из-за того что самолет останавливается на пересадочном пункте!
+
+## 4. Как меняется среднее время задержки в течение дня? Что следует использовать: dep_time или sched_dep_time? Почему?
+```{r}
+sched_dep_data <- flights %>% 
+  mutate(hour = hour(sched_dep_time)) %>% 
+  group_by(hour) %>% 
+  summarise(
+    avg_delay = mean(arr_delay, na.rm = TRUE),
+    n = n())
+
+ggplotly(ggplot(sched_dep_data, aes(hour, n)) +
+           geom_line(color = "red")+
+           geom_point( size = 2, color = "green") +
+           labs(x = "Часы", 
+                y = "Количество запланированных вылетов", 
+                title = "Количество запланированных вылетов в течение суток"))
+
+
+ggplotly(ggplot(dep_avg_data, aes(minute, avg_delay)) +
+           geom_col(color = "red")+
+           geom_point( size = 2, color = "green") +
+           labs(x = "Время(мин)", 
+                y = "Кол-во запланированных вылетов", 
+                title = "Кол-во запланированных вылетов за час"))
+
+sr_delay <- flights %>%
+  mutate(hour = hour(dep_time)) %>%
+  group_by(hour) %>%
+  summarise(
+    avg_delay = mean(arr_delay, na.rm = TRUE),
+    n = n()
+  )
+ggplotly(ggplot(sr_delay, aes(hour, avg_delay)) +
+           geom_col(color = "red")+
+           geom_point(size = 2, color = "green") +
+           labs(x = "Время отправления (в часах)", 
+                y = "Средняя задержка (в мин)",
+                title = "Среднее время задержки в течение дня"))
+```
+## Ответ:
+На графиках видно, что максимум задержок в начале и в конце дня!!!
+dep_time - используется для учёта фактической задержки рейса.
+shed_dep_time - использует запланированное время вылета.
+## 5. В какой день недели лучше уехать, если вы хотите свести к минимуму вероятность задержки?
+```{r}
+sched_dep_data <- flights %>% 
+  mutate(week = wday(sched_dep_time, label = TRUE)) %>% 
+  group_by(week) %>% 
+  summarise(avg_delay = mean(arr_delay, na.rm = TRUE), n = n())
+
+ggplotly(ggplot(sched_dep_data, aes(x = week, y = avg_delay)) +
+           geom_point(size = 2, color = "yellow") +
+           labs(x = "Дни недели", y = "Средняя задержка(мин)", 
+                title = "Средняя задержка рейсов в течение недели"))
+
+
+```
+## Ответ:
+Минимальная задержка по субботам, а максимальная по четвергам!
+## 6. В чем сходство распределения diamonds$carat и flights$sched_dep_time?
+```{r}
+sched_dep_data <- flights %>% 
+  mutate(minute = minute(sched_dep_time)) %>% 
+  group_by(minute) %>% 
+  summarise(n = n())
+ggplotly(ggplot(sched_dep_data, aes(minute, n)) +
+           geom_col(color = "red")+
+           geom_point( size = 2, color = "green") +
+           labs(x = "Время(мин)", 
+                y = "Количество запланированных вылетов", 
+                title = "Количество запланированных вылетов за час"))
+
+ggplotly(ggplot(diamonds, aes(carat, price)) + 
+           geom_col(color = "yellow") +
+           scale_x_continuous(limits = c(0.1, 2)) +
+           labs(title = "Соотношение карат к их стоимости",))
+```
+## Ответ:
+Распределения идут на более полные значения или округленные
+
+## 7. Подтвердите гипотезу о том, что ранние вылеты рейсов через 20-30 и 50-60 минут вызваны ранним вылетом регулярных рейсов. Подсказка: создайте двоичную переменную, которая сообщает вам, был ли задержан рейс.
+```{r}
+bull_peremennaya <- FALSE
+
+for(i in 1:length(flights)) {
+  zero <- flights$dep_time[i] - flights$sched_dep_time[i]
+  if(zero != flights$dep_delay[i]) {
+    print(paste("Не совпал:", zero, "!==", flights$dep_delay[i]))
+    bull_peremennaya <- TRUE
+  }else{
+    print(paste("Совпал:", zero, "==", flights$dep_delay[i]))
+  }
+}
+
+
+if(!bull_peremennaya){
+  print("Время задержки совпадает!!!") 
+}
+
+print(paste(flights$arr_time - flights$dep_time, flights$air_time))
+
+```
+## Ответ:
+dep_delay равна разности между dep_time и sched_dep_time.
+Если самолёт вылетел раньше, чем было запланировано, то dep_delay меньше 0.
